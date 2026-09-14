@@ -1,0 +1,62 @@
+name: Security
+
+# Extra security gates for public contributions:
+#   - Bandit   : Python security linter (SAST for common insecure patterns)
+#   - Gitleaks : secret scanning (catches committed tokens/keys)
+#   - Ruff     : lint + basic static checks
+# All jobs run with read-only permissions and no secrets, so they are safe to
+# run against untrusted forked-PR code.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bandit:
+    name: bandit (python security)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install bandit
+        run: pip install "bandit==1.7.*"
+      - name: Run bandit
+        # Fail on MEDIUM+ findings. The only LOW findings are intentional
+        # try/except/continue guards that skip unreadable/corrupt files (B112).
+        run: bandit -r claude_session_bridge.py --severity-level medium
+
+  ruff:
+    name: ruff (lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install "ruff==0.6.*"
+      - name: Run ruff
+        run: ruff check .
+
+  gitleaks:
+    name: gitleaks (secret scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          # No license needed for public repos.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

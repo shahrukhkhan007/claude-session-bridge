@@ -1,0 +1,43 @@
+name: CI
+
+# Runs the test suite on pushes to main and on pull requests.
+# Uses `pull_request` (NOT pull_request_target) so code from forked PRs runs
+# WITHOUT access to repository secrets — untrusted contributor code can never
+# read secrets or push to the repo.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least privilege: the whole workflow can only read the checked-out code.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests (py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Byte-compile (syntax check)
+        run: python -m compileall claude_session_bridge.py
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
