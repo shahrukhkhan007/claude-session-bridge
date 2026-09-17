@@ -6,6 +6,8 @@
 
 Make your **Claude Code desktop-app sessions visible across accounts** on the same Mac.
 
+![How claude-session-bridge works](docs/how-it-works.svg)
+
 If you run two Claude accounts on one machine — say work and personal — and
 switch between them when one hits a usage limit, the desktop app only shows the
 sessions of whichever account is logged in. The conversations themselves are
@@ -60,6 +62,8 @@ Fully quit the app (**Cmd+Q**) and reopen it to see the changes.
 | `claude-bridge --diagnose` | Read-only report: where every account's sessions are stored, and how many are bridgeable vs cloud-only. | No |
 | `claude-bridge --project <text>` | Limit to sessions whose project folder name contains `<text>`. | — |
 | `claude-bridge --index-dir <path>` | Target a specific account's index folder instead of auto-detecting. | — |
+| `claude-bridge --app-support <path>` | Target a specific instance's data dir (e.g. a `--user-data-dir` instance like `~/Library/Application Support/Claude-Work`) instead of the default. | — |
+| `claude-bridge --projects-dir <path>` | Use a non-default transcripts dir (when an instance isolates its own transcripts). | — |
 | `claude-bridge --undo` | Shows the latest backup for manual restore. | No |
 
 ### Typical fix-up
@@ -86,6 +90,16 @@ Yes — safety was the design priority:
 
 Worst case is a sidebar entry that looks off, fixable with `--undo`; your actual
 conversations are never modified.
+
+## How it works
+
+The desktop app shows a session only if a small `local_*.json` registration
+exists in that account's `claude-code-sessions/<account>/<workspace>/` index
+folder. The transcripts in `~/.claude/projects/*.jsonl` are shared by the CLI,
+the VS Code extension, and the desktop app, and carry no account binding. This
+tool scans those transcripts and writes the missing registrations for the
+current account, copying the field schema from an existing registration (from
+any account) so the app renders them correctly.
 
 ## Caveats
 
