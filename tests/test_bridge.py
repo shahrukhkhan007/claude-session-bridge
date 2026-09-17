@@ -258,6 +258,25 @@ class BridgeTests(unittest.TestCase):
         backups = self.fx.home / ".claude_session_bridge_backups"
         self.assertTrue(backups.is_dir() and any(backups.iterdir()))
 
+    def test_app_support_targets_instance(self):
+        # Simulate a --user-data-dir instance: its own app-support folder, but
+        # sharing the default ~/.claude/projects transcripts.
+        self.fx.transcript("proj", "inst-cli", "Instance session")
+        self.fx.transcript("proj", "seedW", "Seed")
+        inst = self.fx.home / "Library" / "Application Support" / "Claude-Work"
+        idx = inst / "claude-code-sessions" / "acctW" / "ws1"
+        idx.mkdir(parents=True)
+        (inst / "config.json").write_text(json.dumps({"lastKnownAccountUuid": "acctW"}))
+        seed = {"sessionId": "local_seedW", "cliSessionId": "seedW", "title": "Seed",
+                "createdAt": 1788000000000, "lastActivityAt": 1788000001000,
+                "cwd": "/x", "originCwd": "/x", "model": "claude-opus-5",
+                "isArchived": False, **RICH_FIELDS}
+        (idx / "local_seedW.json").write_text(json.dumps(seed))
+        code, out = run(self.fx.home, "--apply", "--app-support", str(inst))
+        self.assertEqual(code, 0)
+        clis = {json.loads(f.read_text())["cliSessionId"] for f in idx.glob("local_*.json")}
+        self.assertIn("inst-cli", clis)  # registered into the instance's folder
+
     def test_never_touches_transcripts(self):
         self.fx.set_account("acctA")
         idx = self.fx.index_dir("acctA", "ws1")

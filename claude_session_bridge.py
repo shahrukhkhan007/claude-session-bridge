@@ -26,6 +26,11 @@ Usage
   python3 claude_session_bridge.py --apply --project my-app   # filter
   python3 claude_session_bridge.py --undo         # restore latest backup
 
+Multiple side-by-side instances (--user-data-dir):
+  python3 claude_session_bridge.py --app-support \
+      "$HOME/Library/Application Support/Claude-Work"          # target one instance
+  # add --projects-dir <path> too if that instance isolates its own transcripts
+
 No dependencies beyond the Python 3 standard library.
 """
 
@@ -59,12 +64,24 @@ def fail(msg):
 
 # ---------------------------------------------------------------- discovery
 
-def find_app_support():
+def find_app_support(override=None):
+    """Locate the Claude desktop app data folder.
+
+    `override` targets a specific instance's data dir (e.g. a --user-data-dir
+    folder like ~/Library/Application Support/Claude-Work), so the tool works
+    with multiple side-by-side instances.
+    """
+    if override:
+        p = Path(override).expanduser()
+        if not p.is_dir():
+            fail(f"--app-support path does not exist: {p}")
+        return p
     for p in APP_SUPPORT_CANDIDATES:
         if p.is_dir():
             return p
     fail("Could not find the Claude desktop app data folder under "
-         "~/Library/Application Support. Is the desktop app installed?")
+         "~/Library/Application Support. Is the desktop app installed? "
+         "For a --user-data-dir instance, pass --app-support <that folder>.")
 
 
 def find_session_index_dirs(app_support):
@@ -338,8 +355,8 @@ def find_all_transcripts(app_support):
     return index, locations
 
 
-def diagnose():
-    app_support = find_app_support()
+def diagnose(app_support_override=None):
+    app_support = find_app_support(app_support_override)
     log(f"App data folder : {app_support}\n")
 
     tindex, locations = find_all_transcripts(app_support)
@@ -397,17 +414,29 @@ def main():
     ap.add_argument("--dedupe", action="store_true",
                     help="consolidate sessions registered in more than one of this "
                          "account's workspaces (moves extra copies to a backup)")
+    ap.add_argument("--app-support",
+                    help="target a specific instance's Claude data dir instead of the "
+                         "default (e.g. '~/Library/Application Support/Claude-Work' from a "
+                         "--user-data-dir instance)")
+    ap.add_argument("--projects-dir",
+                    help="path to the transcripts dir if not the default ~/.claude/projects "
+                         "(use when an instance isolates its own transcripts)")
     args = ap.parse_args()
+
+    # Honor a custom transcripts location for the rest of this run.
+    global CLI_PROJECTS
+    if args.projects_dir:
+        CLI_PROJECTS = Path(args.projects_dir).expanduser()
 
     if args.undo:
         undo()
         return
 
     if args.diagnose:
-        diagnose()
+        diagnose(args.app_support)
         return
 
-    app_support = find_app_support()
+    app_support = find_app_support(args.app_support)
     log(f"App data folder : {app_support}")
 
     acct, src = current_account_uuid(app_support)
