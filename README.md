@@ -53,6 +53,11 @@ Everything else — flags, backups, `--diagnose`, `--refresh`, `--dedupe` — is
 identical. Fully quit the Claude app (right-click the tray icon → Quit, or end it
 in Task Manager) and reopen it to see changes.
 
+Closing the window is **not** enough — the app keeps running in the tray with
+its old session list. If Claude was installed from the **Microsoft Store**, its
+data lives in `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude`;
+the tool finds it automatically.
+
 ## Usage
 
 Always start with the safe preview (the default — it writes nothing):
@@ -79,6 +84,7 @@ Fully quit the app (**Cmd+Q**) and reopen it to see the changes.
 | `claude-bridge --index-dir <path>` | Target a specific account's index folder instead of auto-detecting. | — |
 | `claude-bridge --app-support <path>` | Target a specific instance's data dir (e.g. a `--user-data-dir` instance like `~/Library/Application Support/Claude-Work`) instead of the default. | — |
 | `claude-bridge --projects-dir <path>` | Use a non-default transcripts dir (when an instance isolates its own transcripts). | — |
+| `claude-bridge --include-deleted` | Also register sessions you deleted in the app (skipped by default). | — |
 | `claude-bridge --undo` | Shows the latest backup for manual restore. | No |
 
 ### Typical fix-up

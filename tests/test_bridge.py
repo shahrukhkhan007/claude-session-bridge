@@ -159,7 +159,9 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(code, 0)
         regs = self.fx.load_regs(empty)
         self.assertEqual(len(regs), 1)
-        self.assertIn("chromePermissionMode", regs[0])  # inherited rich schema
+        self.assertEqual(regs[0]["effort"], "high")          # inherited rich schema
+        self.assertEqual(regs[0]["permissionMode"], "default")  # ...but not its grants
+        self.assertNotIn("chromePermissionMode", regs[0])
 
     def test_apply_no_cross_workspace_duplicate(self):
         # same session already registered in a SIBLING workspace of the account
@@ -173,6 +175,57 @@ class BridgeTests(unittest.TestCase):
         all_clis = [r["cliSessionId"]
                     for d in (ws1, ws2) for r in self.fx.load_regs(d)]
         self.assertEqual(all_clis.count("dup-cli"), 1)  # not duplicated
+
+    def test_template_does_not_leak_session_state(self):
+        # The richest registration carries another session's history and
+        # permission grants; none of it may reach bridged sessions.
+        self.fx.set_account("acctA")
+        idx = self.fx.index_dir("acctA", "ws1")
+        self.fx.registration(
+            self.fx.index_dir("other", "wsx"), "rich", "rich-cli", "Rich",
+            permissionMode="bypassPermissions",
+            alwaysAllowedReasons=["Bash(rm:*)"],
+            prs=[{"prNumber": 1, "url": "https://example.invalid/pr/1"}],
+            writtenBranches=["secret-branch"],
+            publishedArtifacts=[{"url": "https://example.invalid/a"}],
+            bridgeSessionIds=["session_x"],
+        )
+        self.fx.transcript("proj", "mine-cli", "My session")
+        code, out = run(self.fx.home, "--apply")
+        self.assertEqual(code, 0)
+        reg = self.fx.load_regs(idx)[0]
+        self.assertEqual(reg["permissionMode"], "default")
+        self.assertEqual(reg["alwaysAllowedReasons"], [])
+        for leaked in ("chromePermissionMode", "prs", "writtenBranches",
+                       "publishedArtifacts", "bridgeSessionIds"):
+            self.assertNotIn(leaked, reg)
+
+    def test_apply_skips_deleted_sessions(self):
+        self.fx.set_account("acctA")
+        idx = self.fx.index_dir("acctA", "ws1")
+        self.fx.registration(idx, "seed", "seed-cli", "Seed")
+        self.fx.transcript("proj", "seed-cli", "Seed")
+        self.fx.transcript("proj", "gone-cli", "Deleted in the app")
+        self.fx.transcript("proj", "new-cli", "Still wanted")
+        # the app marks deletions with deleted_<cliSessionId>, in any account
+        (self.fx.index_dir("other", "wsx") / "deleted_gone-cli").write_text("1788000000000")
+        code, out = run(self.fx.home, "--apply")
+        self.assertEqual(code, 0)
+        self.assertIn("Skipped", out)
+        clis = {r["cliSessionId"] for r in self.fx.load_regs(idx)}
+        self.assertIn("new-cli", clis)
+        self.assertNotIn("gone-cli", clis)
+
+    def test_include_deleted_restores_them(self):
+        self.fx.set_account("acctA")
+        idx = self.fx.index_dir("acctA", "ws1")
+        self.fx.registration(idx, "seed", "seed-cli", "Seed")
+        self.fx.transcript("proj", "seed-cli", "Seed")
+        self.fx.transcript("proj", "gone-cli", "Deleted in the app")
+        (idx / "deleted_gone-cli").write_text("1788000000000")
+        run(self.fx.home, "--apply", "--include-deleted")
+        clis = {r["cliSessionId"] for r in self.fx.load_regs(idx)}
+        self.assertIn("gone-cli", clis)
 
     # ---------------------------------------------------------------- titles
 
@@ -203,7 +256,8 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(code, 0)
         reg = self.fx.load_regs(idx)[0]
         self.assertEqual(reg["title"], "Fix the login screen")
-        self.assertIn("chromePermissionMode", reg)  # upgraded to rich schema
+        self.assertIn("classifierSummaryEnabled", reg)  # upgraded to rich schema
+        self.assertNotIn("chromePermissionMode", reg)   # grants never copied
 
     def test_refresh_covers_all_workspaces(self):
         self.fx.set_account("acctA")
@@ -280,6 +334,29 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(code, 0)
         clis = {json.loads(f.read_text())["cliSessionId"] for f in idx.glob("local_*.json")}
         self.assertIn("inst-cli", clis)  # registered into the instance's folder
+
+    def test_finds_windows_store_install(self):
+        # Microsoft Store (MSIX) builds keep data under the package's LocalCache;
+        # a stale %LOCALAPPDATA%\Claude without session indexes must not win.
+        (self.fx.home / "AppData" / "Local" / "Claude").mkdir(parents=True)
+        msix = (self.fx.home / "AppData" / "Local" / "Packages" / "Claude_abc123"
+                / "LocalCache" / "Roaming" / "Claude")
+        idx = msix / "claude-code-sessions" / "acctM" / "ws1"
+        idx.mkdir(parents=True)
+        (msix / "config.json").write_text(json.dumps({"lastKnownAccountUuid": "acctM"}))
+        # remove the macOS-layout fixture so only Windows locations exist
+        import shutil
+        shutil.rmtree(self.fx.app)
+        seed = {"sessionId": "local_s", "cliSessionId": "s-cli", "title": "Seed",
+                "createdAt": 1788000000000, "lastActivityAt": 1788000001000,
+                "cwd": "/x", "originCwd": "/x", "model": "claude-opus-5",
+                "isArchived": False, **RICH_FIELDS}
+        (idx / "local_s.json").write_text(json.dumps(seed))
+        self.fx.transcript("proj", "store-cli", "Store session")
+        code, out = run(self.fx.home, "--apply")
+        self.assertEqual(code, 0, out)
+        clis = {json.loads(f.read_text())["cliSessionId"] for f in idx.glob("local_*.json")}
+        self.assertIn("store-cli", clis)
 
     def test_never_touches_transcripts(self):
         self.fx.set_account("acctA")

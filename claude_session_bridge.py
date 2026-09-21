@@ -56,7 +56,10 @@ def _app_support_candidates():
     We list every known location and pick the first that exists, so the same
     script works on macOS, Windows, and Linux without a platform switch.
       macOS   : ~/Library/Application Support/Claude
-      Windows : %APPDATA%\\Claude  (Roaming), %LOCALAPPDATA%\\Claude
+      Windows : %APPDATA%\\Claude  (Roaming), %LOCALAPPDATA%\\Claude,
+                %LOCALAPPDATA%\\Packages\\Claude_*\\LocalCache\\Roaming\\Claude
+                (Microsoft Store / MSIX install — outside the app, %APPDATA%
+                does not redirect there)
       Linux   : ~/.config/Claude
     """
     cands = [
@@ -69,12 +72,21 @@ def _app_support_candidates():
         base = os.environ.get(env)
         if base:
             cands += [Path(base) / "Claude", Path(base) / "Claude Code"]
+    local = os.environ.get("LOCALAPPDATA")                           # Windows MSIX
+    if local:
+        cands += [pkg / "LocalCache" / "Roaming" / "Claude"
+                  for pkg in sorted((Path(local) / "Packages").glob("Claude_*"))]
     return cands
 
 
 APP_SUPPORT_CANDIDATES = _app_support_candidates()
 CLI_PROJECTS = HOME / ".claude" / "projects"
 BACKUP_ROOT = HOME / ".claude_session_bridge_backups"
+# Closing the window on Windows/Linux only hides the app in the tray, and it
+# keeps its old session list in memory until it really exits.
+QUIT_HINT = ("Fully quit the Claude desktop app (Cmd+Q)" if sys.platform == "darwin" else
+             "Fully quit the Claude desktop app (tray icon -> Quit; closing the "
+             "window only hides it)")
 
 
 def log(msg=""):
@@ -100,12 +112,20 @@ def find_app_support(override=None):
         if not p.is_dir():
             fail(f"--app-support path does not exist: {p}")
         return p
-    for p in APP_SUPPORT_CANDIDATES:
-        if p.is_dir():
+    # Prefer a folder that actually holds session indexes: a machine can have a
+    # leftover folder (e.g. %LOCALAPPDATA%\Claude from an older installer) next
+    # to the one the app really uses.
+    existing = [p for p in APP_SUPPORT_CANDIDATES if p.is_dir()]
+    for p in existing:
+        if any(p.glob("claude-code-sessions*")):
             return p
+    if existing:
+        return existing[0]
     fail("Could not find the Claude desktop app data folder "
          "(macOS: ~/Library/Application Support/Claude, "
-         "Windows: %APPDATA%\\Claude, Linux: ~/.config/Claude). "
+         "Windows: %APPDATA%\\Claude or "
+         "%LOCALAPPDATA%\\Packages\\Claude_*\\LocalCache\\Roaming\\Claude, "
+         "Linux: ~/.config/Claude). "
          "Is the desktop app installed? "
          "For a --user-data-dir instance, pass --app-support <that folder>.")
 
@@ -295,9 +315,35 @@ def build_registration(template, meta):
     return reg
 
 
+# Template fields that get a neutral value instead of the template session's own:
+# permission grants must never spread from one session to another.
+TEMPLATE_RESET = {
+    "permissionMode": "default",
+    "alwaysAllowedReasons": [],
+    "sessionPermissionUpdates": [],
+    "enabledMcpTools": {},
+    "remoteMcpServersConfig": [],
+    "completedTurns": 0,
+    "titleSource": "auto",
+}
+# Template fields safe to copy as-is (display preferences, no session history).
+TEMPLATE_COPY = ("classifierSummaryEnabled", "effort", "model")
+
+
+def sanitize_template(data):
+    """Keep only the schema, not the session: a rich registration also carries
+    per-session state (PR links, branches, published artifacts, crash records,
+    chrome/computer-use grants such as chromePermissionMode=skip_all_permission_checks)
+    that must not be stamped onto every bridged session. Allowlist, so fields
+    added by future app versions are dropped by default."""
+    out = {k: v for k, v in TEMPLATE_RESET.items() if k in data}
+    out.update({k: data[k] for k in TEMPLATE_COPY if k in data})
+    return out
+
+
 def best_template(index_dirs):
-    """The richest existing registration across ALL accounts — used as the field
-    schema when the target account has none of its own to copy."""
+    """The richest existing registration across ALL accounts, sanitized — used
+    as the field schema when the target account has none of its own to copy."""
     best = None
     for d in index_dirs:
         for f in d.glob("local_*.json"):
@@ -307,7 +353,14 @@ def best_template(index_dirs):
                 continue
             if best is None or len(data) > len(best):
                 best = data
-    return best
+    return sanitize_template(best) if best is not None else None
+
+
+def deleted_ids(index_dirs):
+    """cliSessionIds the user deleted in the app. The app leaves a
+    `deleted_<cliSessionId>` marker next to the registrations; without this
+    check, deleted sessions would be re-registered from their transcripts."""
+    return {f.name[len("deleted_"):] for d in index_dirs for f in d.glob("deleted_*")}
 
 
 def existing_across(dirs):
@@ -336,7 +389,7 @@ def undo():
     latest = stamps[-1]
     log(f"Latest backup: {latest}")
     log("To restore, quit the Claude app, then copy the backed-up folder back over "
-        "the matching folder under ~/Library/Application Support/Claude/ .")
+        "the matching folder under the app data folder's claude-code-sessions/ .")
     log("(Automatic restore is intentionally manual so you stay in control.)")
 
 
@@ -447,6 +500,8 @@ def main():
     ap.add_argument("--projects-dir",
                     help="path to the transcripts dir if not the default ~/.claude/projects "
                          "(use when an instance isolates its own transcripts)")
+    ap.add_argument("--include-deleted", action="store_true",
+                    help="also register sessions you deleted in the app (skipped by default)")
     args = ap.parse_args()
 
     # Honor a custom transcripts location for the rest of this run.
@@ -532,7 +587,7 @@ def main():
                 shutil.move(str(f), str(dump / f"{f.parent.name}__{f.name}"))
                 moved += 1
         log(f"\nConsolidated duplicates: moved {moved} extra copies to\n  {dump}")
-        log("Fully quit the Claude desktop app (Cmd+Q) and reopen it.")
+        log(f"{QUIT_HINT} and reopen it.")
         return
 
     # --refresh: rewrite existing registrations across ALL of this account's
@@ -572,7 +627,7 @@ def main():
                 fixed += 1
         log(f"\nRefreshed {fixed} registrations across {len(acct_dirs)} workspace(s) "
             f"({retitled} re-titled from the transcript).")
-        log("Fully quit the Claude desktop app (Cmd+Q) and reopen it.")
+        log(f"{QUIT_HINT} and reopen it.")
         return
 
     # For --apply: dedupe across ALL the account's workspaces so we never write a
@@ -583,6 +638,13 @@ def main():
     log(f"Transcripts     : {len(transcripts)} found under {CLI_PROJECTS}")
 
     todo = [t for t in transcripts if t.stem not in existing]
+    if not args.include_deleted:
+        gone = deleted_ids(index_dirs)
+        kept = [t for t in todo if t.stem not in gone]
+        if len(kept) < len(todo):
+            log(f"Skipped         : {len(todo) - len(kept)} sessions you deleted in the app "
+                f"(--include-deleted to restore them)")
+        todo = kept
     log(f"Unregistered    : {len(todo)} for this account\n")
 
     if not todo:
@@ -611,7 +673,7 @@ def main():
     log()
     if args.apply:
         log(f"Done: {written} sessions registered into {target.name}.")
-        log("Fully quit the Claude desktop app (Cmd+Q) and reopen it to see them.")
+        log(f"{QUIT_HINT} and reopen it to see them.")
     else:
         log(f"Dry run only — nothing written. Re-run with --apply to register "
             f"{len(todo)} sessions.")
