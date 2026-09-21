@@ -20,7 +20,7 @@ It is read-only and **redacts session titles** — but review it before posting
 and remove anything you consider sensitive (folder paths, etc.).
 
 **Environment**
-- macOS version:
+- OS + version (macOS / Windows / Linux):
 - Claude desktop app version:
 - Python version (`python3 --version`):
 - Tool version / commit:

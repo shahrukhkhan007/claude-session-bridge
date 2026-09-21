@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# One-command installer for claude-session-bridge (macOS).
+# One-command installer for claude-session-bridge (macOS / Linux).
+# On Windows, run the script with Python directly (see the README).
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/shahrukhkhan007/claude-session-bridge/main/install.sh | bash
 set -euo pipefail
@@ -11,12 +12,16 @@ SCRIPT_PATH="$BIN_DIR/claude-bridge"
 echo "Installing claude-session-bridge…"
 
 # 1. Requirements
-if [[ "$(uname)" != "Darwin" ]]; then
-  echo "This installer targets macOS. Aborting." >&2
-  exit 1
-fi
+case "$(uname -s)" in
+  Darwin|Linux) ;;
+  *)
+    echo "This installer is for macOS/Linux. On Windows, run the script with" >&2
+    echo "Python directly: python claude_session_bridge.py  (see the README)." >&2
+    exit 1 ;;
+esac
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "python3 not found. Install it (e.g. 'brew install python') and re-run." >&2
+  echo "python3 not found. Install it (macOS: 'brew install python'; Linux: your" >&2
+  echo "package manager, e.g. 'sudo apt install python3') and re-run." >&2
   exit 1
 fi
 
@@ -29,12 +34,18 @@ else
 fi
 chmod +x "$SCRIPT_PATH"
 
-# 3. Make sure ~/.local/bin is on PATH
-SHELL_RC="$HOME/.zshrc"
+# 3. Make sure ~/.local/bin is on PATH (append to the right shell rc)
+case "$(basename "${SHELL:-}")" in
+  zsh)  SHELL_RC="$HOME/.zshrc" ;;
+  bash) SHELL_RC="$HOME/.bashrc" ;;
+  *)    SHELL_RC="$HOME/.profile" ;;
+esac
 if ! echo "$PATH" | tr ':' '\n' | grep -qx "$BIN_DIR"; then
-  echo "" >> "$SHELL_RC"
-  echo '# claude-session-bridge' >> "$SHELL_RC"
-  echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$SHELL_RC"
+  {
+    echo ""
+    echo '# claude-session-bridge'
+    echo 'export PATH="$HOME/.local/bin:$PATH"'
+  } >> "$SHELL_RC"
   echo "Added $BIN_DIR to PATH in $SHELL_RC (open a new terminal to pick it up)."
 fi
 

@@ -28,7 +28,7 @@ logged into — no more copying notes into a handoff file every time you switch.
 | ❌ Cloud / web ("remote") sessions | Content lives on Anthropic's servers, never on disk — cannot be bridged |
 | ❌ Sessions on a *different* computer | Not synced automatically; the files would have to be copied over first |
 
-## Install (one command, macOS)
+## Install (one command — macOS / Linux)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/shahrukhkhan007/claude-session-bridge/main/install.sh | bash
