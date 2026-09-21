@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# OS
+.DS_Store
+
+# Local backups this tool creates (never commit real session data)
+.claude_session_bridge_backups/
+*.jsonl
+local_*.json
+/.idea/

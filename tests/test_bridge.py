@@ -28,7 +28,11 @@ RICH_FIELDS = {
 
 def run(home, *args):
     """Run the script with a given fake HOME; return (exit_code, stdout+stderr)."""
-    env = dict(os.environ, HOME=str(home))
+    # Point HOME at the fixture, and neutralize Windows %APPDATA% so the script
+    # never reaches a real Claude install when tests run on Windows.
+    env = dict(os.environ, HOME=str(home), USERPROFILE=str(home),
+               APPDATA=str(home / "AppData" / "Roaming"),
+               LOCALAPPDATA=str(home / "AppData" / "Local"))
     proc = subprocess.run(
         [sys.executable, str(SCRIPT), *args],
         env=env, capture_output=True, text=True,
