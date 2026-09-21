@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 claude_session_bridge.py — make Claude (Code) desktop-app sessions from one
-account visible in another account's sidebar, on the SAME Mac.
+account visible in another account's sidebar, on the SAME computer.
+
+Cross-platform: macOS, Windows (%APPDATA%\\Claude), and Linux.
 
 How it works
 ------------
@@ -36,6 +38,7 @@ No dependencies beyond the Python 3 standard library.
 
 import argparse
 import json
+import os
 import re
 import shutil
 import sys
@@ -45,10 +48,31 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 HOME = Path.home()
-APP_SUPPORT_CANDIDATES = [
-    HOME / "Library" / "Application Support" / "Claude",
-    HOME / "Library" / "Application Support" / "Claude Code",
-]
+
+
+def _app_support_candidates():
+    """Where the Claude desktop app stores its data, across platforms.
+
+    We list every known location and pick the first that exists, so the same
+    script works on macOS, Windows, and Linux without a platform switch.
+      macOS   : ~/Library/Application Support/Claude
+      Windows : %APPDATA%\\Claude  (Roaming), %LOCALAPPDATA%\\Claude
+      Linux   : ~/.config/Claude
+    """
+    cands = [
+        HOME / "Library" / "Application Support" / "Claude",        # macOS
+        HOME / "Library" / "Application Support" / "Claude Code",
+        HOME / ".config" / "Claude",                                 # Linux
+        HOME / ".config" / "Claude Code",
+    ]
+    for env in ("APPDATA", "LOCALAPPDATA"):                          # Windows
+        base = os.environ.get(env)
+        if base:
+            cands += [Path(base) / "Claude", Path(base) / "Claude Code"]
+    return cands
+
+
+APP_SUPPORT_CANDIDATES = _app_support_candidates()
 CLI_PROJECTS = HOME / ".claude" / "projects"
 BACKUP_ROOT = HOME / ".claude_session_bridge_backups"
 
@@ -79,8 +103,10 @@ def find_app_support(override=None):
     for p in APP_SUPPORT_CANDIDATES:
         if p.is_dir():
             return p
-    fail("Could not find the Claude desktop app data folder under "
-         "~/Library/Application Support. Is the desktop app installed? "
+    fail("Could not find the Claude desktop app data folder "
+         "(macOS: ~/Library/Application Support/Claude, "
+         "Windows: %APPDATA%\\Claude, Linux: ~/.config/Claude). "
+         "Is the desktop app installed? "
          "For a --user-data-dir instance, pass --app-support <that folder>.")
 
 

@@ -16,9 +16,9 @@ file decides what shows in the sidebar. This tool writes the missing
 registrations so your **local** sessions appear under whichever account you're
 logged into — no more copying notes into a handoff file every time you switch.
 
-> **macOS only** for now. Windows uses a different storage layout (see
-> [issues](https://github.com/shahrukhkhan007/claude-session-bridge/issues) —
-> contributions welcome).
+> **Cross-platform:** macOS, Windows, and Linux. The tool auto-detects the
+> desktop app's data folder on each (macOS `~/Library/Application Support/Claude`,
+> Windows `%APPDATA%\Claude`, Linux `~/.config/Claude`).
 
 ## What it can and can't do
 
@@ -37,6 +37,21 @@ curl -fsSL https://raw.githubusercontent.com/shahrukhkhan007/claude-session-brid
 This installs a `claude-bridge` command into `~/.local/bin`. Open a new terminal
 afterwards. (Prefer not to pipe to bash? Download `claude_session_bridge.py` and
 run it directly with `python3` — it's a single standard-library file.)
+
+### Windows
+
+No bash installer — just run the script with Python (install once via
+`winget install Python.Python.3`). From PowerShell, in the folder with the
+script:
+
+```powershell
+python claude_session_bridge.py             # dry run (safe, writes nothing)
+python claude_session_bridge.py --apply     # register (backs up first)
+```
+
+Everything else — flags, backups, `--diagnose`, `--refresh`, `--dedupe` — is
+identical. Fully quit the Claude app (right-click the tray icon → Quit, or end it
+in Task Manager) and reopen it to see changes.
 
 ## Usage
 
